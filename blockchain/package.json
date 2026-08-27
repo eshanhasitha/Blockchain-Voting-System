@@ -9,8 +9,8 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "devDependencies": {
-    "hardhat": "^3.14.0"
+    "hardhat": "^3.15.0"
   }
 }
