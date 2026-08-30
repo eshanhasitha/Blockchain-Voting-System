@@ -5,11 +5,7 @@ export default defineConfig({
     plugins: [hardhatEthers],
 
     solidity: {
-        profiles: {
-            default: {
-                version: "0.8.24",
-            },
-        },
+        version: "0.8.24",
     },
 
     networks: {

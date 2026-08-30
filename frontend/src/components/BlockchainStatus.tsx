@@ -16,8 +16,8 @@ function BlockchainStatus() {
     const [candidateCount, setCandidateCount] =
         useState(0);
 
-    const [electionCreated, setElectionCreated] =
-        useState(false);
+    const [electionCount, setElectionCount] =
+        useState(0);
 
     const [error, setError] =
         useState("");
@@ -32,33 +32,44 @@ function BlockchainStatus() {
             const contract =
                 await getContract();
 
+            // admin() is a valid public variable
             const adminAddress =
                 await contract.admin();
 
-            const votes =
-                await contract.totalVotes();
-
-            const candidates =
-                await contract.candidateCount();
-
-            const election =
-                await contract.electionCreated();
-
             setAdmin(adminAddress);
 
-            setTotalVotes(
-                Number(votes)
-            );
+            // getNextElectionId() tells us how many elections exist
+            // Elections are 1-indexed, so (nextId - 1) = total elections
+            const nextId =
+                await contract.getNextElectionId();
 
-            setCandidateCount(
-                Number(candidates)
-            );
+            const numElections = Number(nextId) - 1;
+            setElectionCount(numElections);
 
-            setElectionCreated(
-                election
-            );
+            // Aggregate candidate counts and votes across all elections
+            let totalCandidates = 0;
+            let totalVotesSum = 0;
 
-        } catch (error) {
+            for (let i = 1; i <= numElections; i++) {
+
+                try {
+                    const election =
+                        await contract.getElection(i);
+
+                    // getElection returns: (id, title, description, startTime, endTime, candidateCount, totalVotes)
+                    totalCandidates += Number(election[5]);
+                    totalVotesSum += Number(election[6]);
+
+                } catch (e) {
+                    // Election might not exist, skip
+                    console.warn(`Could not load election ${i}:`, e);
+                }
+            }
+
+            setCandidateCount(totalCandidates);
+            setTotalVotes(totalVotesSum);
+
+        } catch (error: any) {
 
             console.error(error);
 
@@ -92,6 +103,12 @@ function BlockchainStatus() {
             </p>
 
             <p>
+                Elections:
+                {" "}
+                {electionCount}
+            </p>
+
+            <p>
                 Candidates:
                 {" "}
                 {candidateCount}
@@ -103,17 +120,8 @@ function BlockchainStatus() {
                 {totalVotes}
             </p>
 
-            <p>
-                Election Created:
-                {" "}
-                {electionCreated
-                    ? "Yes"
-                    : "No"
-                }
-            </p>
-
             {error && (
-                <p>
+                <p style={{ color: "red" }}>
                     {error}
                 </p>
             )}

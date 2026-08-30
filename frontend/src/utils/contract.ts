@@ -3,10 +3,10 @@ import {
     Contract
 } from "ethers";
 
-import {
-    CONTRACT_ADDRESS,
-    CONTRACT_ABI
-} from "../contracts/VotingSystem";
+import VotingSystem from "../contracts/VotingSystem.json";
+
+export const CONTRACT_ADDRESS =
+    "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 
 export async function getProvider() {
 
@@ -16,12 +16,9 @@ export async function getProvider() {
         );
     }
 
-    const provider =
-        new BrowserProvider(
-            window.ethereum
-        );
-
-    return provider;
+    return new BrowserProvider(
+        window.ethereum
+    );
 }
 
 
@@ -62,10 +59,9 @@ export async function getContract(
 
         return new Contract(
             CONTRACT_ADDRESS,
-            CONTRACT_ABI,
+            VotingSystem.abi,
             signer
         );
-
     }
 
     const provider =
@@ -73,7 +69,7 @@ export async function getContract(
 
     return new Contract(
         CONTRACT_ADDRESS,
-        CONTRACT_ABI,
+        VotingSystem.abi,
         provider
     );
 }

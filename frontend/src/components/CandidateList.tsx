@@ -5,10 +5,19 @@ import {
 } from "../utils/contract";
 
 
+interface CandidateData {
+    electionId: number;
+    id: number;
+    name: string;
+    description: string;
+    voteCount: number;
+}
+
+
 function CandidateList() {
 
     const [candidates, setCandidates] =
-        useState([]);
+        useState<CandidateData[]>([]);
 
     const [loading, setLoading] =
         useState(true);
@@ -24,34 +33,57 @@ function CandidateList() {
             const contract =
                 await getContract();
 
-            const count =
-                await contract.candidateCount();
+            // Get total number of elections
+            const nextId =
+                await contract.getNextElectionId();
 
-            const result = [];
+            const numElections = Number(nextId) - 1;
 
-            for (
-                let i = 1;
-                i <= Number(count);
-                i++
-            ) {
+            const result: CandidateData[] = [];
 
-                const candidate =
-                    await contract.candidates(i);
+            for (let electionId = 1; electionId <= numElections; electionId++) {
 
-                result.push({
-                    id: Number(candidate.id),
-                    name: candidate.name,
-                    description:
-                        candidate.description,
-                    voteCount:
-                        Number(candidate.voteCount)
-                });
+                try {
+                    // getCandidateCount(electionId) returns the number of candidates
+                    const count =
+                        await contract.getCandidateCount(electionId);
 
+                    for (
+                        let candidateId = 1;
+                        candidateId <= Number(count);
+                        candidateId++
+                    ) {
+
+                        try {
+                            // getCandidate(electionId, candidateId) returns (id, name, description, voteCount)
+                            const candidate =
+                                await contract.getCandidate(electionId, candidateId);
+
+                            result.push({
+                                electionId,
+                                id: Number(candidate[0]),
+                                name: candidate[1],
+                                description: candidate[2],
+                                voteCount: Number(candidate[3])
+                            });
+
+                        } catch (e) {
+                            console.warn(
+                                `Could not load candidate ${candidateId} from election ${electionId}:`, e
+                            );
+                        }
+                    }
+
+                } catch (e) {
+                    console.warn(
+                        `Could not load candidates for election ${electionId}:`, e
+                    );
+                }
             }
 
             setCandidates(result);
 
-        } catch (error) {
+        } catch (error: any) {
 
             console.error(error);
 
@@ -93,7 +125,7 @@ function CandidateList() {
             </h2>
 
             {error && (
-                <p>{error}</p>
+                <p style={{ color: "red" }}>{error}</p>
             )}
 
             {candidates.length === 0 ? (
@@ -108,12 +140,16 @@ function CandidateList() {
                     (candidate) => (
 
                         <div
-                            key={candidate.id}
+                            key={`${candidate.electionId}-${candidate.id}`}
                         >
 
                             <h3>
                                 {candidate.name}
                             </h3>
+
+                            <p>
+                                Election #{candidate.electionId}
+                            </p>
 
                             <p>
                                 {candidate.description}
