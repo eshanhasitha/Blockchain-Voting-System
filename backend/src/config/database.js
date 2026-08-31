@@ -1,15 +1,26 @@
 import mongoose from "mongoose";
+import dns from "dns";
+
+// Fix for Node.js ESERVFAIL / queryTxt issues on Windows with MongoDB Atlas SRV records
+try {
+    dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
+} catch (e) {
+    console.warn("Could not set custom DNS servers:", e.message);
+}
 
 const connectDatabase = async () => {
     try {
-        await mongoose.connect(process.env.MONGO_URI);
+        const uri = process.env.MONGO_URI;
+        if (!uri) {
+            console.error("MONGO_URI is not defined in environment variables");
+            return;
+        }
 
+        await mongoose.connect(uri);
         console.log("MongoDB connected successfully");
     } catch (error) {
         console.error("MongoDB connection failed:");
         console.error(error.message);
-
-        process.exit(1);
     }
 };
 

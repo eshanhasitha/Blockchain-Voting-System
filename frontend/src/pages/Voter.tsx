@@ -1,24 +1,41 @@
 import { useEffect, useState } from "react";
 import { ethers } from "ethers";
-
 import VotingSystemABI from "../contracts/VotingSystem.json";
 
-const CONTRACT_ADDRESS =
-    "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
+
+interface CandidateData {
+    id: number;
+    name: string;
+    description: string;
+    votes: number;
+}
+
+interface ElectionData {
+    id: number;
+    title: string;
+    description: string;
+    startTime: number;
+    endTime: number;
+    candidateCount: number;
+    totalVotes: number;
+    status: string;
+}
 
 function Voter() {
     const [account, setAccount] = useState("");
-    const [contract, setContract] = useState(null);
+    const [contract, setContract] = useState<ethers.Contract | null>(null);
 
     const [admin, setAdmin] = useState("");
-    const [candidates, setCandidates] = useState([]);
-    const [totalVotes, setTotalVotes] = useState(0);
+    const [elections, setElections] = useState<ElectionData[]>([]);
+    const [candidates, setCandidates] = useState<CandidateData[]>([]);
+    const [selectedElection, setSelectedElection] = useState<ElectionData | null>(null);
 
-    const [isRegistered, setIsRegistered] = useState(false);
+    const [isAuthorized, setIsAuthorized] = useState(false);
     const [hasVoted, setHasVoted] = useState(false);
 
     const [loading, setLoading] = useState(true);
-    const [votingId, setVotingId] = useState(null);
+    const [votingId, setVotingId] = useState<number | null>(null);
 
     const [message, setMessage] = useState("");
     const [error, setError] = useState("");
@@ -37,17 +54,9 @@ function Voter() {
                 return;
             }
 
-            const provider = new ethers.BrowserProvider(
-                window.ethereum
-            );
-
-            const accounts = await provider.send(
-                "eth_requestAccounts",
-                []
-            );
-
+            const provider = new ethers.BrowserProvider(window.ethereum);
+            const accounts = await provider.send("eth_requestAccounts", []);
             const signer = await provider.getSigner();
-
             const userAddress = accounts[0];
 
             setAccount(userAddress);
@@ -59,118 +68,119 @@ function Voter() {
             );
 
             setContract(votingContract);
-
             setMessage("Wallet connected.");
 
-            await loadBlockchainData(
-                votingContract,
-                userAddress
-            );
+            await loadElections(votingContract, userAddress);
 
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
-
-            setError(
-                err.shortMessage ||
-                err.message ||
-                "Failed to connect wallet."
-            );
+            setError(err.shortMessage || err.message || "Failed to connect wallet.");
         }
     }
 
     // =========================================================
-    // LOAD BLOCKCHAIN DATA
+    // LOAD ELECTIONS
     // =========================================================
 
-    async function loadBlockchainData(
-        votingContract,
-        userAddress
+    async function loadElections(
+        votingContract: ethers.Contract,
+        userAddress?: string
     ) {
         try {
             setLoading(true);
             setError("");
 
-            // -----------------------------------------------------
-            // ADMIN
-            // -----------------------------------------------------
-
+            // Admin
             try {
-                const adminAddress =
-                    await votingContract.admin();
-
+                const adminAddress = await votingContract.admin();
                 setAdmin(adminAddress);
             } catch (err) {
                 console.log("Admin not available:", err);
             }
 
-            // -----------------------------------------------------
-            // TOTAL VOTES
-            // -----------------------------------------------------
+            // Elections
+            const nextId = await votingContract.getNextElectionId();
+            const numElections = Number(nextId) - 1;
 
-            try {
-                const votes =
-                    await votingContract.totalVotes();
+            const electionList: ElectionData[] = [];
 
-                setTotalVotes(Number(votes));
-            } catch (err) {
-                console.log(
-                    "totalVotes() not available:",
-                    err
-                );
+            for (let i = 1; i <= numElections; i++) {
+                try {
+                    const election = await votingContract.getElection(i);
+                    const status = await votingContract.getElectionStatus(i);
+
+                    electionList.push({
+                        id: Number(election[0]),
+                        title: election[1],
+                        description: election[2],
+                        startTime: Number(election[3]),
+                        endTime: Number(election[4]),
+                        candidateCount: Number(election[5]),
+                        totalVotes: Number(election[6]),
+                        status: status,
+                    });
+                } catch (e) {
+                    console.warn(`Could not load election ${i}:`, e);
+                }
             }
 
-            // -----------------------------------------------------
-            // REGISTERED VOTER
-            // -----------------------------------------------------
+            setElections(electionList);
 
-            try {
-                const registered =
-                    await votingContract.registeredVoters(
-                        userAddress
-                    );
-
-                setIsRegistered(Boolean(registered));
-            } catch (err) {
-                console.log(
-                    "registeredVoters() not available:",
-                    err
-                );
+            // Auto-select first active election
+            const activeElection = electionList.find((e) => e.status === "ACTIVE");
+            if (activeElection && userAddress) {
+                await selectElection(votingContract, activeElection, userAddress);
             }
 
-            // -----------------------------------------------------
-            // HAS VOTED
-            // -----------------------------------------------------
-
-            try {
-                const voted =
-                    await votingContract.hasVoted(
-                        userAddress
-                    );
-
-                setHasVoted(Boolean(voted));
-            } catch (err) {
-                console.log(
-                    "hasVoted() not available:",
-                    err
-                );
-            }
-
-            // -----------------------------------------------------
-            // LOAD CANDIDATES
-            // -----------------------------------------------------
-
-            await loadCandidates(votingContract);
-
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
-
-            setError(
-                err.shortMessage ||
-                err.message ||
-                "Failed to load blockchain data."
-            );
+            setError(err.shortMessage || err.message || "Failed to load elections.");
         } finally {
             setLoading(false);
+        }
+    }
+
+    // =========================================================
+    // SELECT ELECTION
+    // =========================================================
+
+    async function selectElection(
+        votingContract: ethers.Contract,
+        election: ElectionData,
+        userAddress: string
+    ) {
+        try {
+            setSelectedElection(election);
+
+            // Check voter authorization
+            try {
+                const authorized = await votingContract.isAuthorizedVoter(
+                    election.id,
+                    userAddress
+                );
+                setIsAuthorized(Boolean(authorized));
+            } catch (err) {
+                console.log("isAuthorizedVoter not available:", err);
+                setIsAuthorized(false);
+            }
+
+            // Check if voted
+            try {
+                const voted = await votingContract.hasVoterVoted(
+                    election.id,
+                    userAddress
+                );
+                setHasVoted(Boolean(voted));
+            } catch (err) {
+                console.log("hasVoterVoted not available:", err);
+                setHasVoted(false);
+            }
+
+            // Load candidates
+            await loadCandidates(votingContract, election.id);
+
+        } catch (err: any) {
+            console.error(err);
         }
     }
 
@@ -178,118 +188,33 @@ function Voter() {
     // LOAD CANDIDATES
     // =========================================================
 
-    async function loadCandidates(votingContract) {
+    async function loadCandidates(
+        votingContract: ethers.Contract,
+        electionId: number
+    ) {
         try {
-            let candidateList = [];
+            const count = await votingContract.getCandidateCount(electionId);
+            const candidateList: CandidateData[] = [];
 
-            // -----------------------------------------------------
-            // OPTION 1:
-            // getCandidates()
-            // -----------------------------------------------------
-
-            try {
-                candidateList =
-                    await votingContract.getCandidates();
-
-                console.log(
-                    "Candidates from getCandidates():",
-                    candidateList
-                );
-            } catch (err) {
-                console.log(
-                    "getCandidates() not available."
-                );
-            }
-
-            // -----------------------------------------------------
-            // OPTION 2:
-            // candidateCount() + getCandidate()
-            // -----------------------------------------------------
-
-            if (
-                !candidateList ||
-                candidateList.length === 0
-            ) {
+            for (let i = 1; i <= Number(count); i++) {
                 try {
-                    const count =
-                        await votingContract.candidateCount();
+                    const candidate = await votingContract.getCandidate(electionId, i);
 
-                    const tempCandidates = [];
-
-                    for (
-                        let i = 0;
-                        i < Number(count);
-                        i++
-                    ) {
-                        const candidate =
-                            await votingContract.getCandidate(i);
-
-                        tempCandidates.push(candidate);
-                    }
-
-                    candidateList = tempCandidates;
-
-                } catch (err) {
-                    console.log(
-                        "candidateCount/getCandidate unavailable."
-                    );
+                    candidateList.push({
+                        id: Number(candidate[0]),
+                        name: candidate[1],
+                        description: candidate[2],
+                        votes: Number(candidate[3]),
+                    });
+                } catch (e) {
+                    console.warn(`Could not load candidate ${i}:`, e);
                 }
             }
 
-            // -----------------------------------------------------
-            // FORMAT CANDIDATES
-            // -----------------------------------------------------
-
-            const formattedCandidates =
-                candidateList.map(
-                    (candidate, index) => {
-
-                        /*
-                         * Supports:
-                         *
-                         * candidate.id
-                         * candidate.name
-                         * candidate.voteCount
-                         *
-                         * and tuple indexes:
-                         *
-                         * candidate[0]
-                         * candidate[1]
-                         * candidate[2]
-                         */
-
-                        const id =
-                            candidate.id ??
-                            candidate[0] ??
-                            index;
-
-                        const name =
-                            candidate.name ??
-                            candidate[1] ??
-                            "Unknown Candidate";
-
-                        const votes =
-                            candidate.voteCount ??
-                            candidate.votes ??
-                            candidate[2] ??
-                            0;
-
-                        return {
-                            id: Number(id),
-                            name: name.toString(),
-                            votes: Number(votes)
-                        };
-                    }
-                );
-
-            setCandidates(formattedCandidates);
+            setCandidates(candidateList);
 
         } catch (err) {
-            console.error(
-                "Candidate loading error:",
-                err
-            );
-
+            console.error("Candidate loading error:", err);
             setCandidates([]);
         }
     }
@@ -298,97 +223,66 @@ function Voter() {
     // VOTE
     // =========================================================
 
-    async function vote(candidateId) {
+    async function vote(candidateId: number) {
         try {
             setError("");
             setMessage("");
 
-            if (!contract) {
-                setError(
-                    "Please connect your MetaMask wallet first."
-                );
+            if (!contract || !selectedElection) {
+                setError("Please connect wallet and select an election.");
                 return;
             }
 
-            if (!isRegistered) {
-                setError(
-                    "You are not registered as a voter."
-                );
+            if (!isAuthorized) {
+                setError("You are not authorized to vote in this election.");
                 return;
             }
 
             if (hasVoted) {
-                setError(
-                    "You have already voted."
-                );
+                setError("You have already voted in this election.");
                 return;
             }
 
             setVotingId(candidateId);
+            setMessage("Please confirm the transaction in MetaMask...");
 
-            setMessage(
-                "Please confirm the transaction in MetaMask..."
+            const transaction = await contract.castVote(
+                selectedElection.id,
+                candidateId
             );
 
-            // -----------------------------------------------------
-            // CALL SMART CONTRACT
-            // -----------------------------------------------------
-
-            const transaction =
-                await contract.vote(candidateId);
-
-            setMessage(
-                "Vote transaction submitted. Waiting for confirmation..."
-            );
-
-            console.log(
-                "Transaction:",
-                transaction.hash
-            );
-
-            // -----------------------------------------------------
-            // WAIT FOR BLOCKCHAIN CONFIRMATION
-            // -----------------------------------------------------
+            setMessage("Vote transaction submitted. Waiting for confirmation...");
+            console.log("Transaction:", transaction.hash);
 
             await transaction.wait();
 
-            setMessage(
-                "Your vote was successfully recorded!"
-            );
-
+            setMessage("Your vote was successfully recorded!");
             setHasVoted(true);
 
-            // -----------------------------------------------------
-            // REFRESH DATA
-            // -----------------------------------------------------
+            // Refresh
+            await loadElections(contract, account);
 
-            await loadBlockchainData(
-                contract,
-                account
-            );
+        } catch (err: any) {
+            console.error("Voting error:", err);
 
-        } catch (err) {
-            console.error(
-                "Voting error:",
-                err
-            );
-
-            let errorMessage =
-                "Failed to cast vote.";
-
-            if (err.reason) {
-                errorMessage = err.reason;
-            } else if (err.shortMessage) {
-                errorMessage = err.shortMessage;
-            } else if (err.message) {
-                errorMessage = err.message;
-            }
+            let errorMessage = "Failed to cast vote.";
+            if (err.reason) errorMessage = err.reason;
+            else if (err.shortMessage) errorMessage = err.shortMessage;
+            else if (err.message) errorMessage = err.message;
 
             setError(errorMessage);
-
         } finally {
             setVotingId(null);
         }
+    }
+
+    // =========================================================
+    // HANDLE ELECTION CLICK
+    // =========================================================
+
+    async function handleElectionClick(election: ElectionData) {
+        if (!contract || !account) return;
+        await selectElection(contract, election, account);
     }
 
     // =========================================================
@@ -403,35 +297,22 @@ function Voter() {
             }
 
             try {
-                const provider =
-                    new ethers.BrowserProvider(
-                        window.ethereum
-                    );
-
-                const accounts =
-                    await provider.send(
-                        "eth_accounts",
-                        []
-                    );
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                const accounts = await provider.send("eth_accounts", []);
 
                 if (accounts.length > 0) {
-                    const signer =
-                        await provider.getSigner();
+                    const signer = await provider.getSigner();
 
-                    const votingContract =
-                        new ethers.Contract(
-                            CONTRACT_ADDRESS,
-                            VotingSystemABI.abi,
-                            signer
-                        );
+                    const votingContract = new ethers.Contract(
+                        CONTRACT_ADDRESS,
+                        VotingSystemABI.abi,
+                        signer
+                    );
 
                     setAccount(accounts[0]);
                     setContract(votingContract);
 
-                    await loadBlockchainData(
-                        votingContract,
-                        accounts[0]
-                    );
+                    await loadElections(votingContract, accounts[0]);
                 } else {
                     setLoading(false);
                 }
@@ -446,36 +327,53 @@ function Voter() {
     }, []);
 
     // =========================================================
-    // META MASK ACCOUNT CHANGE
+    // ACCOUNT CHANGE HANDLER
     // =========================================================
 
     useEffect(() => {
         if (!window.ethereum) return;
 
-        function handleAccountsChanged(accounts) {
+        function handleAccountsChanged(accounts: string[]) {
             if (accounts.length === 0) {
                 setAccount("");
                 setContract(null);
                 setCandidates([]);
-                setIsRegistered(false);
+                setIsAuthorized(false);
                 setHasVoted(false);
             } else {
                 window.location.reload();
             }
         }
 
-        window.ethereum.on(
-            "accountsChanged",
-            handleAccountsChanged
-        );
+        function handleChainChanged() {
+            window.location.reload();
+        }
+
+        window.ethereum.on("accountsChanged", handleAccountsChanged);
+        window.ethereum.on("chainChanged", handleChainChanged);
 
         return () => {
-            window.ethereum.removeListener(
-                "accountsChanged",
-                handleAccountsChanged
-            );
+            window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
+            window.ethereum.removeListener("chainChanged", handleChainChanged);
         };
     }, []);
+
+    // =========================================================
+    // HELPERS
+    // =========================================================
+
+    function formatTimestamp(ts: number) {
+        return new Date(ts * 1000).toLocaleString();
+    }
+
+    function getStatusColor(status: string) {
+        switch (status) {
+            case "ACTIVE": return "text-green-400 bg-green-400/10 border-green-400/20";
+            case "UPCOMING": return "text-blue-400 bg-blue-400/10 border-blue-400/20";
+            case "ENDED": return "text-gray-400 bg-gray-400/10 border-gray-400/20";
+            default: return "text-gray-400";
+        }
+    }
 
     // =========================================================
     // UI
@@ -486,270 +384,215 @@ function Voter() {
 
             <div className="max-w-5xl mx-auto">
 
-                {/* =================================================
-            HEADER
-        ================================================= */}
+                {/* HEADER */}
 
                 <div className="text-center mb-10">
-
-                    <h1 className="text-4xl md:text-5xl font-bold mb-4">
+                    <h1 className="text-4xl md:text-5xl font-bold mb-3">
                         University Voting
                     </h1>
-
-                    <p className="text-gray-400">
-                        Secure Blockchain-Based Voting
+                    <p className="text-gray-500">
+                        Secure Blockchain-Based Voting System
                     </p>
-
                 </div>
 
+                {/* WALLET */}
 
-                {/* =================================================
-            WALLET
-        ================================================= */}
-
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
+                <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 mb-6">
 
                     {!account ? (
-
                         <div className="text-center">
-
                             <p className="text-gray-400 mb-4">
                                 Connect your MetaMask wallet to vote.
                             </p>
-
                             <button
                                 onClick={connectWallet}
-                                className="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-lg font-semibold"
+                                className="bg-blue-600 hover:bg-blue-700 px-8 py-3 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-blue-600/20"
                             >
                                 Connect MetaMask
                             </button>
-
                         </div>
-
                     ) : (
-
                         <div>
-
-                            <p className="text-green-400 font-semibold mb-2">
-                                Wallet Connected
+                            <p className="text-green-400 font-semibold mb-1 text-sm">
+                                ✓ Wallet Connected
                             </p>
-
-                            <p className="text-gray-300 break-all">
+                            <p className="text-gray-300 break-all font-mono text-sm">
                                 {account}
                             </p>
-
                         </div>
-
                     )}
 
                 </div>
 
+                {/* STATUS CARDS */}
 
-                {/* =================================================
-            STATUS
-        ================================================= */}
-
-                {account && (
-
+                {account && selectedElection && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
 
-                        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-
-                            <p className="text-gray-400">
-                                Registration
+                        <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
+                            <p className="text-gray-500 text-xs uppercase tracking-wide">Authorization</p>
+                            <p className={`text-lg font-bold mt-2 ${isAuthorized ? "text-green-400" : "text-red-400"}`}>
+                                {isAuthorized ? "✓ Authorized" : "✗ Not Authorized"}
                             </p>
-
-                            <p className="text-xl font-bold mt-2">
-
-                                {isRegistered
-                                    ? "Registered"
-                                    : "Not Registered"}
-
-                            </p>
-
                         </div>
 
-
-                        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-
-                            <p className="text-gray-400">
-                                Voting Status
+                        <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
+                            <p className="text-gray-500 text-xs uppercase tracking-wide">Voting Status</p>
+                            <p className={`text-lg font-bold mt-2 ${hasVoted ? "text-blue-400" : "text-yellow-400"}`}>
+                                {hasVoted ? "✓ Vote Submitted" : "○ Not Voted"}
                             </p>
-
-                            <p className="text-xl font-bold mt-2">
-
-                                {hasVoted
-                                    ? "Vote Submitted"
-                                    : "Not Voted"}
-
-                            </p>
-
                         </div>
 
-
-                        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-
-                            <p className="text-gray-400">
-                                Total Votes
+                        <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
+                            <p className="text-gray-500 text-xs uppercase tracking-wide">Total Votes</p>
+                            <p className="text-lg font-bold mt-2">
+                                {selectedElection.totalVotes}
                             </p>
-
-                            <p className="text-xl font-bold mt-2">
-                                {totalVotes}
-                            </p>
-
                         </div>
 
                     </div>
-
                 )}
 
-
-                {/* =================================================
-            MESSAGES
-        ================================================= */}
+                {/* MESSAGES */}
 
                 {message && (
-
-                    <div className="bg-blue-950 border border-blue-800 text-blue-300 rounded-lg p-4 mb-6">
+                    <div className="bg-blue-950/50 border border-blue-800/50 text-blue-300 rounded-xl p-4 mb-6 text-sm">
                         {message}
                     </div>
-
                 )}
-
 
                 {error && (
-
-                    <div className="bg-red-950 border border-red-800 text-red-300 rounded-lg p-4 mb-6">
+                    <div className="bg-red-950/50 border border-red-800/50 text-red-300 rounded-xl p-4 mb-6 text-sm">
                         {error}
                     </div>
-
                 )}
 
-
-                {/* =================================================
-            ADMIN
-        ================================================= */}
+                {/* ADMIN INFO */}
 
                 {admin && (
-
-                    <div className="text-center text-sm text-gray-500 mb-8">
-
-                        Contract Admin:
-
-                        <span className="ml-2">
-                            {admin}
-                        </span>
-
+                    <div className="text-center text-xs text-gray-600 mb-8">
+                        Contract Admin: <span className="font-mono text-gray-500">{admin}</span>
                     </div>
-
                 )}
 
+                {/* ELECTIONS SELECTOR */}
 
-                {/* =================================================
-            CANDIDATES
-        ================================================= */}
+                {elections.length > 0 && (
+                    <div className="mb-8">
+                        <h2 className="text-2xl font-bold mb-4">Elections</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {elections.map((election) => (
+                                <div
+                                    key={election.id}
+                                    onClick={() => handleElectionClick(election)}
+                                    className={`bg-gray-900/50 border rounded-xl p-5 cursor-pointer transition-all duration-200 hover:border-blue-500/50 ${
+                                        selectedElection?.id === election.id
+                                            ? "border-blue-500 shadow-lg shadow-blue-500/10"
+                                            : "border-gray-800"
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h3 className="font-bold">{election.title}</h3>
+                                        <span className={`text-xs px-3 py-1 rounded-full border font-medium ${getStatusColor(election.status)}`}>
+                                            {election.status}
+                                        </span>
+                                    </div>
+                                    <p className="text-gray-400 text-sm mb-2">{election.description}</p>
+                                    <p className="text-gray-600 text-xs">
+                                        {formatTimestamp(election.startTime)} — {formatTimestamp(election.endTime)}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* CANDIDATES */}
 
                 <div>
-
-                    <h2 className="text-3xl font-bold mb-6">
-                        Candidates
+                    <h2 className="text-2xl font-bold mb-6">
+                        {selectedElection ? `Candidates — ${selectedElection.title}` : "Candidates"}
                     </h2>
-
 
                     {loading ? (
 
                         <div className="text-center py-10">
-                            <p className="text-gray-400">
-                                Loading blockchain data...
-                            </p>
+                            <div className="inline-block w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                            <p className="text-gray-400">Loading blockchain data...</p>
+                        </div>
+
+                    ) : !selectedElection ? (
+
+                        <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-8 text-center">
+                            <p className="text-gray-500">Select an election above to see candidates.</p>
                         </div>
 
                     ) : candidates.length === 0 ? (
 
-                        <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
-
-                            <p className="text-gray-400">
-                                No candidates available.
-                            </p>
-
+                        <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-8 text-center">
+                            <p className="text-gray-500">No candidates available for this election.</p>
                         </div>
 
                     ) : (
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-                            {candidates.map(
-                                (candidate) => (
+                            {candidates.map((candidate) => (
 
-                                    <div
-                                        key={candidate.id}
-                                        className="bg-gray-900 border border-gray-800 rounded-xl p-6"
+                                <div
+                                    key={candidate.id}
+                                    className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 transition-all duration-200 hover:border-gray-700"
+                                >
+                                    <h3 className="text-xl font-bold mb-1">
+                                        {candidate.name}
+                                    </h3>
+
+                                    <p className="text-gray-500 text-sm mb-4">
+                                        {candidate.description}
+                                    </p>
+
+                                    <p className="text-gray-400 mb-6">
+                                        Votes:
+                                        <span className="text-white font-bold ml-2">
+                                            {candidate.votes}
+                                        </span>
+                                    </p>
+
+                                    <button
+                                        onClick={() => vote(candidate.id)}
+                                        disabled={
+                                            !account ||
+                                            !isAuthorized ||
+                                            hasVoted ||
+                                            votingId !== null ||
+                                            selectedElection?.status !== "ACTIVE"
+                                        }
+                                        className={`w-full py-3 rounded-xl font-semibold transition-all duration-200 ${
+                                            !account || !isAuthorized || hasVoted || votingId !== null || selectedElection?.status !== "ACTIVE"
+                                                ? "bg-gray-800 text-gray-500 cursor-not-allowed"
+                                                : "bg-green-600 hover:bg-green-700 shadow-lg shadow-green-600/20"
+                                        }`}
                                     >
-
-                                        {/* Candidate Name */}
-
-                                        <h3 className="text-2xl font-bold mb-3">
-                                            {candidate.name}
-                                        </h3>
-
-
-                                        {/* Votes */}
-
-                                        <p className="text-gray-400 mb-6">
-
-                                            Votes:
-
-                                            <span className="text-white font-bold ml-2">
-                                                {candidate.votes}
-                                            </span>
-
-                                        </p>
-
-
-                                        {/* Vote Button */}
-
-                                        <button
-                                            onClick={() =>
-                                                vote(candidate.id)
-                                            }
-                                            disabled={
-                                                !account ||
-                                                !isRegistered ||
-                                                hasVoted ||
-                                                votingId !== null
-                                            }
-                                            className={`w-full py-3 rounded-lg font-semibold ${!account ||
-                                                !isRegistered ||
-                                                hasVoted ||
-                                                votingId !== null
-                                                ? "bg-gray-700 text-gray-400 cursor-not-allowed"
-                                                : "bg-green-600 hover:bg-green-700"
-                                                }`}
-                                        >
-
-                                            {votingId === candidate.id
-                                                ? "Voting..."
-                                                : hasVoted
-                                                    ? "Already Voted"
-                                                    : !isRegistered
-                                                        ? "Not Registered"
+                                        {votingId === candidate.id
+                                            ? "Voting..."
+                                            : hasVoted
+                                                ? "Already Voted"
+                                                : !isAuthorized
+                                                    ? "Not Authorized"
+                                                    : selectedElection?.status !== "ACTIVE"
+                                                        ? "Election Not Active"
                                                         : "Vote"}
+                                    </button>
 
-                                        </button>
-
-                                    </div>
-
-                                )
-                            )}
+                                </div>
+                            ))}
 
                         </div>
-
                     )}
 
                 </div>
 
             </div>
-
         </div>
     );
 }

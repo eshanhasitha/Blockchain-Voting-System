@@ -12,6 +12,8 @@
   "type": "module",
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^4.0.15",
+    "@nomicfoundation/hardhat-mocha": "^3.1.0",
+    "chai": "^6.2.2",
     "ethers": "^6.17.0",
     "hardhat": "^3.15.0"
   }
