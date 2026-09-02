@@ -28,7 +28,7 @@ function ConnectWallet() {
 
             setAccount(address);
 
-        } catch (error) {
+        } catch (error: any) {
 
             console.error(error);
 
@@ -45,7 +45,7 @@ function ConnectWallet() {
     }
 
 
-    function shortenAddress(address) {
+    function shortenAddress(address: string) {
 
         if (!address) return "";
 

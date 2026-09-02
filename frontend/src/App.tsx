@@ -11,6 +11,7 @@ import Admin from "./pages/Admin";
 import Results from "./pages/Results";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import NetworkAlert from "./components/NetworkAlert";
 
 function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
     const location = useLocation();
@@ -19,11 +20,10 @@ function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
     return (
         <Link
             to={to}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                isActive
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${isActive
                     ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25"
                     : "text-gray-400 hover:text-white hover:bg-gray-800"
-            }`}
+                }`}
         >
             {children}
         </Link>
@@ -33,6 +33,7 @@ function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
 function AppLayout() {
     return (
         <>
+            <NetworkAlert />
             <nav className="bg-gray-950/80 backdrop-blur-xl border-b border-gray-800/50 sticky top-0 z-50">
                 <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
 
