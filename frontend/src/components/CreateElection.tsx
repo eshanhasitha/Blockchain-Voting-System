@@ -110,7 +110,7 @@ export default function CreateElection({ onElectionCreated }: CreateElectionProp
                 </label>
                 <input
                     type="text"
-                    placeholder="e.g. Student Council Presidential Election 2026"
+                    placeholder="e.g. Presidential, Organizational, Board, or Community Election"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-gray-950/80 border border-gray-800 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"

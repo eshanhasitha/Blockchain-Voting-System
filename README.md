@@ -1,7 +1,6 @@
 # Blockchain Voting System
 
-A blockchain-based university voting platform designed to provide
-transparent, tamper-resistant, and auditable election management.
+A secure, decentralized, and tamper-resistant blockchain voting platform designed to support any type of election (presidential, corporate board, community organization, student council, or general referendums) with verifiable and auditable results.
 
 ## Technology Stack
 
