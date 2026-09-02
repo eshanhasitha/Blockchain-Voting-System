@@ -78,6 +78,8 @@ function Voter() {
         }
     }
 
+    const [balance, setBalance] = useState<string>("");
+
     // =========================================================
     // LOAD ELECTIONS
     // =========================================================
@@ -89,6 +91,26 @@ function Voter() {
         try {
             setLoading(true);
             setError("");
+
+            // Sync EVM clock on local Hardhat if available
+            try {
+                if (window.ethereum) {
+                    await window.ethereum.request({ method: "evm_mine", params: [] });
+                }
+            } catch {
+                // Ignore on non-local networks
+            }
+
+            // Fetch balance if userAddress provided
+            if (userAddress && window.ethereum) {
+                try {
+                    const provider = new ethers.BrowserProvider(window.ethereum);
+                    const bal = await provider.getBalance(userAddress);
+                    setBalance(parseFloat(ethers.formatEther(bal)).toFixed(2));
+                } catch (e) {
+                    console.warn("Could not fetch balance:", e);
+                }
+            }
 
             // Admin
             try {
@@ -103,18 +125,26 @@ function Voter() {
             const numElections = Number(nextId) - 1;
 
             const electionList: ElectionData[] = [];
+            const now = Math.floor(Date.now() / 1000);
 
             for (let i = 1; i <= numElections; i++) {
                 try {
                     const election = await votingContract.getElection(i);
-                    const status = await votingContract.getElectionStatus(i);
+                    let status = await votingContract.getElectionStatus(i);
+                    const start = Number(election[3]);
+                    const end = Number(election[4]);
+
+                    // If computer time has passed start time, status is active
+                    if (status === "UPCOMING" && now >= start && now <= end) {
+                        status = "ACTIVE";
+                    }
 
                     electionList.push({
                         id: Number(election[0]),
                         title: election[1],
                         description: election[2],
-                        startTime: Number(election[3]),
-                        endTime: Number(election[4]),
+                        startTime: start,
+                        endTime: end,
                         candidateCount: Number(election[5]),
                         totalVotes: Number(election[6]),
                         status: status,
@@ -127,7 +157,7 @@ function Voter() {
             setElections(electionList);
 
             // Auto-select first active election
-            const activeElection = electionList.find((e) => e.status === "ACTIVE");
+            const activeElection = electionList.find((e) => e.status === "ACTIVE") || electionList[0];
             if (activeElection && userAddress) {
                 await selectElection(votingContract, activeElection, userAddress);
             }
@@ -412,13 +442,30 @@ function Voter() {
                             </button>
                         </div>
                     ) : (
-                        <div>
-                            <p className="text-green-400 font-semibold mb-1 text-sm">
-                                ✓ Wallet Connected
-                            </p>
-                            <p className="text-gray-300 break-all font-mono text-sm">
-                                {account}
-                            </p>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                                <p className="text-green-400 font-semibold mb-1 text-sm flex items-center gap-2">
+                                    <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                                    Wallet Connected
+                                    {balance && (
+                                        <span className="text-xs bg-gray-800 text-gray-300 font-normal px-2 py-0.5 rounded-full border border-gray-700">
+                                            Balance: {balance} ETH
+                                        </span>
+                                    )}
+                                </p>
+                                <p className="text-gray-300 break-all font-mono text-xs">
+                                    {account}
+                                </p>
+                            </div>
+
+                            {contract && account && (
+                                <button
+                                    onClick={() => loadElections(contract, account)}
+                                    className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors shrink-0"
+                                >
+                                    🔄 Refresh Status
+                                </button>
+                            )}
                         </div>
                     )}
 
