@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import { ethers } from "ethers";
 import VotingSystemABI from "../contracts/VotingSystem.json";
 
@@ -23,9 +24,19 @@ interface ElectionData {
 }
 
 function Admin() {
+    const navigate = useNavigate();
     const [account, setAccount] = useState("");
     const [contractAdmin, setContractAdmin] = useState("");
     const [contract, setContract] = useState<ethers.Contract | null>(null);
+
+    const storedUser = localStorage.getItem("user");
+    const adminUser = storedUser ? JSON.parse(storedUser) : null;
+
+    const handleLogout = () => {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        navigate("/login");
+    };
 
     // Create Election
     const [electionTitle, setElectionTitle] = useState("");
@@ -356,18 +367,85 @@ function Admin() {
     // UI
     // =========================================================
 
+    const totalElections = elections.length;
+    const activeElections = elections.filter((e) => e.status === "ACTIVE").length;
+    const totalVotesCount = elections.reduce((sum, e) => sum + (e.totalVotes || 0), 0);
+
     return (
         <div className="min-h-screen bg-gray-950 text-white px-6 py-10">
 
             <div className="max-w-6xl mx-auto">
 
-                <h1 className="text-4xl font-bold text-center mb-2">
-                    Admin Dashboard
-                </h1>
+                {/* HEADER & WELCOME */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 pb-6 border-b border-gray-800">
+                    <div>
+                        <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                            Admin Dashboard
+                        </h1>
+                        <p className="text-gray-400 text-sm mt-1">
+                            Welcome, <span className="text-white font-semibold">{adminUser?.name || "Administrator"}</span> ({adminUser?.email || "admin"})
+                        </p>
+                    </div>
 
-                <p className="text-gray-500 text-center mb-10">
-                    Manage elections, candidates, and voters
-                </p>
+                    <div className="flex items-center gap-3">
+                        <Link
+                            to="/results"
+                            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium rounded-xl border border-gray-700 transition-colors"
+                        >
+                            View Results
+                        </Link>
+                        <button
+                            onClick={handleLogout}
+                            className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 text-sm font-medium rounded-xl transition-colors"
+                        >
+                            Logout
+                        </button>
+                    </div>
+                </div>
+
+                {/* STAT METRIC CARDS */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div className="bg-gray-900/50 border border-gray-800 p-6 rounded-2xl text-center">
+                        <p className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Total Elections</p>
+                        <p className="text-4xl font-extrabold text-white">{totalElections}</p>
+                    </div>
+                    <div className="bg-gray-900/50 border border-gray-800 p-6 rounded-2xl text-center">
+                        <p className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Active Elections</p>
+                        <p className="text-4xl font-extrabold text-green-400">{activeElections}</p>
+                    </div>
+                    <div className="bg-gray-900/50 border border-gray-800 p-6 rounded-2xl text-center">
+                        <p className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Total Votes</p>
+                        <p className="text-4xl font-extrabold text-blue-400">{totalVotesCount}</p>
+                    </div>
+                </div>
+
+                {/* QUICK ACTION BUTTONS */}
+                <div className="flex flex-wrap items-center justify-center gap-3 mb-10">
+                    <a
+                        href="#create-election"
+                        className="px-4 py-2.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                        <span>📋</span> Create Election
+                    </a>
+                    <a
+                        href="#add-candidate"
+                        className="px-4 py-2.5 bg-green-600/20 hover:bg-green-600/30 text-green-300 border border-green-500/30 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                        <span>👤</span> Add Candidate
+                    </a>
+                    <a
+                        href="#authorize-voter"
+                        className="px-4 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                        <span>✅</span> Register Voter
+                    </a>
+                    <Link
+                        to="/results"
+                        className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                        <span>📊</span> View Results
+                    </Link>
+                </div>
 
                 {/* CONNECT */}
 
@@ -422,7 +500,7 @@ function Admin() {
 
                     {/* CREATE ELECTION */}
 
-                    <div className="bg-gray-900/50 border border-gray-800 p-6 rounded-xl">
+                    <div id="create-election" className="bg-gray-900/50 border border-gray-800 p-6 rounded-xl scroll-mt-24">
 
                         <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                             <span className="w-8 h-8 bg-blue-600/20 rounded-lg flex items-center justify-center text-blue-400">📋</span>
@@ -470,7 +548,7 @@ function Admin() {
 
                     {/* ADD CANDIDATE */}
 
-                    <div className="bg-gray-900/50 border border-gray-800 p-6 rounded-xl">
+                    <div id="add-candidate" className="bg-gray-900/50 border border-gray-800 p-6 rounded-xl scroll-mt-24">
 
                         <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                             <span className="w-8 h-8 bg-green-600/20 rounded-lg flex items-center justify-center text-green-400">👤</span>
@@ -511,7 +589,7 @@ function Admin() {
 
                     {/* AUTHORIZE VOTER */}
 
-                    <div className="bg-gray-900/50 border border-gray-800 p-6 rounded-xl">
+                    <div id="authorize-voter" className="bg-gray-900/50 border border-gray-800 p-6 rounded-xl scroll-mt-24">
 
                         <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                             <span className="w-8 h-8 bg-purple-600/20 rounded-lg flex items-center justify-center text-purple-400">✅</span>

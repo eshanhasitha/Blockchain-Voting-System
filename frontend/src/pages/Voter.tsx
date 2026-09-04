@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import { ethers } from "ethers";
 import VotingSystemABI from "../contracts/VotingSystem.json";
 
@@ -23,6 +24,10 @@ interface ElectionData {
 }
 
 function Voter() {
+    const navigate = useNavigate();
+    const storedUser = localStorage.getItem("user");
+    const voterUser = storedUser ? JSON.parse(storedUser) : null;
+
     const [account, setAccount] = useState("");
     const [contract, setContract] = useState<ethers.Contract | null>(null);
 
@@ -37,8 +42,26 @@ function Voter() {
     const [loading, setLoading] = useState(true);
     const [votingId, setVotingId] = useState<number | null>(null);
 
+    const [txHash, setTxHash] = useState<string>("");
+    const [txConfirmed, setTxConfirmed] = useState<boolean>(false);
+    const [copyStatus, setCopyStatus] = useState<string>("");
+
     const [message, setMessage] = useState("");
     const [error, setError] = useState("");
+
+    const handleLogout = () => {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        navigate("/login");
+    };
+
+    const handleCopyTx = () => {
+        if (txHash) {
+            navigator.clipboard.writeText(txHash);
+            setCopyStatus("Copied to clipboard!");
+            setTimeout(() => setCopyStatus(""), 3000);
+        }
+    };
 
     // =========================================================
     // CONNECT WALLET
@@ -257,6 +280,8 @@ function Voter() {
         try {
             setError("");
             setMessage("");
+            setTxHash("");
+            setTxConfirmed(false);
 
             if (!contract || !selectedElection) {
                 setError("Please connect wallet and select an election.");
@@ -281,12 +306,14 @@ function Voter() {
                 candidateId
             );
 
-            setMessage("Vote transaction submitted. Waiting for confirmation...");
+            setTxHash(transaction.hash);
+            setMessage("Vote transaction submitted. Waiting for blockchain confirmation...");
             console.log("Transaction:", transaction.hash);
 
             await transaction.wait();
 
-            setMessage("Your vote was successfully recorded!");
+            setTxConfirmed(true);
+            setMessage("Your vote was successfully recorded on the blockchain!");
             setHasVoted(true);
 
             // Refresh
@@ -296,9 +323,17 @@ function Voter() {
             console.error("Voting error:", err);
 
             let errorMessage = "Failed to cast vote.";
-            if (err.reason) errorMessage = err.reason;
-            else if (err.shortMessage) errorMessage = err.shortMessage;
-            else if (err.message) errorMessage = err.message;
+            if (err.code === 4001 || err.info?.error?.code === 4001) {
+                errorMessage = "Transaction rejected by the user.";
+            } else if (err.code === -32603) {
+                errorMessage = "Blockchain transaction failed (execution reverted).";
+            } else if (err.reason) {
+                errorMessage = err.reason;
+            } else if (err.shortMessage) {
+                errorMessage = err.shortMessage;
+            } else if (err.message) {
+                errorMessage = err.message;
+            }
 
             setError(errorMessage);
         } finally {
@@ -415,14 +450,30 @@ function Voter() {
             <div className="max-w-5xl mx-auto">
 
                 {/* HEADER */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 pb-6 border-b border-gray-800">
+                    <div>
+                        <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent">
+                            Voter Dashboard
+                        </h1>
+                        <p className="text-gray-400 text-sm mt-1">
+                            Welcome, <span className="text-white font-semibold">{voterUser?.name || "Voter"}</span> ({voterUser?.email || "voter"})
+                        </p>
+                    </div>
 
-                <div className="text-center mb-10">
-                    <h1 className="text-4xl md:text-5xl font-bold mb-3 bg-gradient-to-r from-blue-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent">
-                        Blockchain Voting System
-                    </h1>
-                    <p className="text-gray-400 text-sm">
-                        Secure, Transparent & Decentralized Voting for Any Election
-                    </p>
+                    <div className="flex items-center gap-3">
+                        <Link
+                            to="/results"
+                            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium rounded-xl border border-gray-700 transition-colors"
+                        >
+                            View Results
+                        </Link>
+                        <button
+                            onClick={handleLogout}
+                            className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 text-sm font-medium rounded-xl transition-colors"
+                        >
+                            Logout
+                        </button>
+                    </div>
                 </div>
 
                 {/* WALLET */}
@@ -511,6 +562,41 @@ function Voter() {
                 {error && (
                     <div className="bg-red-950/50 border border-red-800/50 text-red-300 rounded-xl p-4 mb-6 text-sm">
                         {error}
+                    </div>
+                )}
+
+                {/* TRANSACTION CONFIRMATION AUDIT BOX */}
+                {txHash && (
+                    <div className="bg-green-950/40 border border-green-700/60 rounded-xl p-5 mb-6">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                            <span className="text-green-400 font-bold flex items-center gap-2 text-sm">
+                                <span>{txConfirmed ? "✓" : "⏳"}</span>
+                                {txConfirmed ? "Vote Successfully Recorded on Blockchain!" : "Vote Submitted — Waiting for Confirmation..."}
+                            </span>
+                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
+                                txConfirmed ? "bg-green-500/20 text-green-300 border border-green-500/30" : "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 animate-pulse"
+                            }`}>
+                                {txConfirmed ? "Confirmed" : "Mining..."}
+                            </span>
+                        </div>
+                        <div className="bg-gray-900/90 rounded-lg p-3 border border-gray-800 font-mono text-xs text-gray-300 break-all mb-3">
+                            <span className="text-gray-500 block mb-1">Transaction Hash (Audit Trail):</span>
+                            {txHash}
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={handleCopyTx}
+                                className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
+                            >
+                                📋 {copyStatus || "Copy Transaction Hash"}
+                            </button>
+                            <Link
+                                to="/results"
+                                className="text-xs text-blue-400 hover:underline ml-2"
+                            >
+                                See Live Results →
+                            </Link>
+                        </div>
                     </div>
                 )}
 
@@ -621,9 +707,9 @@ function Voter() {
                                         }`}
                                     >
                                         {votingId === candidate.id
-                                            ? "Voting..."
+                                            ? "Processing..."
                                             : hasVoted
-                                                ? "Already Voted"
+                                                ? "Voted"
                                                 : !isAuthorized
                                                     ? "Not Authorized"
                                                     : selectedElection?.status !== "ACTIVE"
