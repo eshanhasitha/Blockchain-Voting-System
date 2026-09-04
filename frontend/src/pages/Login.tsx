@@ -28,7 +28,7 @@ function Login() {
             if (response.data.user.role === "admin") {
                 navigate("/admin");
             } else {
-                navigate("/");
+                navigate("/voter");
             }
         } catch (err: any) {
             setError(err.response?.data?.message || "Login failed");

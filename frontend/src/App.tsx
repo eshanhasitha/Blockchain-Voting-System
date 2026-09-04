@@ -6,6 +6,7 @@ import {
     Link,
     useLocation,
     useNavigate,
+    Navigate,
 } from "react-router-dom";
 
 import Voter from "./pages/Voter";
@@ -13,6 +14,7 @@ import Admin from "./pages/Admin";
 import Results from "./pages/Results";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ProtectedRoute from "./components/ProtectedRoute";
 import NetworkAlert from "./components/NetworkAlert";
 
 function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
@@ -31,6 +33,26 @@ function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
             {children}
         </Link>
     );
+}
+
+function RootRedirect() {
+    const token = localStorage.getItem("token");
+    const storedUser = localStorage.getItem("user");
+
+    if (!token || !storedUser) {
+        return <Navigate to="/login" replace />;
+    }
+
+    try {
+        const user = JSON.parse(storedUser);
+        if (user.role === "admin") {
+            return <Navigate to="/admin" replace />;
+        } else {
+            return <Navigate to="/voter" replace />;
+        }
+    } catch {
+        return <Navigate to="/login" replace />;
+    }
 }
 
 function AppLayout() {
@@ -53,7 +75,6 @@ function AppLayout() {
     useEffect(() => {
         checkUser();
 
-        // Listen for storage events (e.g. login in another tab or state change)
         window.addEventListener("storage", checkUser);
         return () => window.removeEventListener("storage", checkUser);
     }, []);
@@ -79,8 +100,11 @@ function AppLayout() {
                     </Link>
 
                     <div className="flex items-center gap-2">
-                        <NavLink to="/">Vote</NavLink>
-                        <NavLink to="/admin">Admin</NavLink>
+                        {user?.role === "admin" ? (
+                            <NavLink to="/admin">Admin</NavLink>
+                        ) : (
+                            <NavLink to="/voter">Vote</NavLink>
+                        )}
                         <NavLink to="/results">Results</NavLink>
 
                         {user ? (
@@ -114,11 +138,46 @@ function AppLayout() {
             </nav>
 
             <Routes>
-                <Route path="/" element={<Voter />} />
-                <Route path="/admin" element={<Admin />} />
-                <Route path="/results" element={<Results />} />
+                <Route path="/" element={<RootRedirect />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
+
+                <Route
+                    path="/admin"
+                    element={
+                        <ProtectedRoute role="admin">
+                            <Admin />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/create-election"
+                    element={
+                        <ProtectedRoute role="admin">
+                            <Admin />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/add-candidate"
+                    element={
+                        <ProtectedRoute role="admin">
+                            <Admin />
+                        </ProtectedRoute>
+                    }
+                />
+
+                <Route
+                    path="/voter"
+                    element={
+                        <ProtectedRoute role="voter">
+                            <Voter />
+                        </ProtectedRoute>
+                    }
+                />
+
+                <Route path="/results" element={<Results />} />
+                <Route path="*" element={<RootRedirect />} />
             </Routes>
         </>
     );
