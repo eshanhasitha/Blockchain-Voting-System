@@ -5,10 +5,13 @@ node_modules/
 .env
 .env.local
 .env.*.local
+backend/.env
+frontend/.env
 
-# Build
+# Build & Test
 dist/
 build/
+coverage/
 
 # Hardhat
 cache/
